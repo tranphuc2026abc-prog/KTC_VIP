@@ -44,10 +44,10 @@ class AppConfig:
     PDF_DIR = "PDF_KNOWLEDGE"
     VECTOR_DB_PATH = "faiss_db_index"
     
-    # RAG Settings
-    CHUNK_SIZE = 800
-    CHUNK_OVERLAP = 150
-    TOP_K_RETRIEVAL = 3
+    # RAG Settings (Đã tinh chỉnh để tìm kiếm sâu hơn)
+    CHUNK_SIZE = 1000 # Tăng kích thước đoạn đọc để hiểu ngữ cảnh tốt hơn
+    CHUNK_OVERLAP = 200
+    TOP_K_RETRIEVAL = 6 # Tăng số lượng nguồn tham khảo lên 6 để tránh bỏ sót
 
 # ==============================================================================
 # 2. GIAO DIỆN (CSS & STYLING) - ĐÃ TỐI ƯU CHO GỌN
@@ -107,6 +107,7 @@ def inject_custom_css():
         }
     </style>
     """, unsafe_allow_html=True)
+
 # ==============================================================================
 # 3. QUẢN LÝ TÀI NGUYÊN (CACHING RESOURCE)
 # ==============================================================================
@@ -179,6 +180,7 @@ class KnowledgeBaseManager:
 
     def get_vector_store(self, force_rebuild=False):
         """Tải hoặc xây dựng lại Vector Database."""
+        # Nếu thư mục DB tồn tại và không bị ép build lại, thì load lên
         if os.path.exists(AppConfig.VECTOR_DB_PATH) and not force_rebuild:
             try:
                 return FAISS.load_local(
@@ -189,7 +191,7 @@ class KnowledgeBaseManager:
             except Exception:
                 pass # Nếu lỗi load thì build lại từ đầu
 
-        # Build mới
+        # Build mới (Chạy khi xóa folder hoặc lần đầu tiên)
         docs = self.load_documents()
         if not docs:
             return None
@@ -239,17 +241,17 @@ def retrieve_info(vector_db, query: str) -> Tuple[str, List[str]]:
 
 def generate_response_stream(client, context, question):
     """Tạo câu trả lời từ LLM (Streaming)."""
+    # Prompt được tối ưu để chú ý đến lớp học
     system_prompt = f"""
-    Bạn là KTC Assistant, một trợ lý giáo dục chuyên nghiệp, thân thiện dành cho học sinh.
-    Nhiệm vụ: Trả lời câu hỏi dựa trên [THÔNG TIN ĐƯỢC CUNG CẤP] dưới đây.
+    Bạn là KTC Assistant, một trợ lý giáo dục chuyên nghiệp.
     
-    Yêu cầu:
-    1. Trả lời bằng tiếng Việt, giọng văn sư phạm, dễ hiểu.
-    2. Nếu thông tin có trong tài liệu, hãy giải thích chi tiết.
-    3. Nếu tài liệu không có thông tin, hãy nói "Xin lỗi, dữ liệu hiện tại chưa cập nhật thông tin này."
+    QUY TẮC QUAN TRỌNG:
+    1. Nếu câu hỏi có nhắc đến LỚP cụ thể (Ví dụ: Tin 10, Tin 11, Tin 12), hãy ƯU TIÊN tìm kiếm và trả lời thông tin từ tài liệu của lớp đó trong [THÔNG TIN ĐƯỢC CUNG CẤP].
+    2. Nếu thông tin của lớp được hỏi không có trong dữ liệu, hãy nói rõ là chưa có thông tin của lớp đó.
+    3. Trả lời bằng tiếng Việt, giọng văn sư phạm, dễ hiểu.
     4. Trình bày đẹp mắt (dùng Markdown, bullet points).
 
-    [THÔNG TIN ĐƯỢC CUNG CẤP]:
+    [THÔNG TIN ĐƯỢC CUNG CẤP TỪ TÀI LIỆU]:
     {context}
     """
     
@@ -279,7 +281,7 @@ def main():
         # 1. Xử lý Logo: Chia cột để logo nhỏ lại và nằm giữa (Tỷ lệ 1-3-1)
         if os.path.exists("LOGO.jpg"):
             c1, c2, c3 = st.columns([1, 3, 1]) 
-            with c2: # Logo nằm ở cột giữa (chiếm khoảng 60% chiều rộng sidebar)
+            with c2: 
                 st.image("LOGO.jpg", use_container_width=True)
         else:
             st.title("🤖")
@@ -325,6 +327,7 @@ def main():
     
     if "vector_db" not in st.session_state:
         with st.spinner("🚀 Đang khởi động hệ thống tri thức..."):
+            # Logic: Nếu không tìm thấy vector_db trên đĩa thì tự động build lại
             kb = KnowledgeBaseManager()
             st.session_state.vector_db = kb.get_vector_store()
 
