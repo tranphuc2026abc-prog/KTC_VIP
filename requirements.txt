@@ -8,3 +8,4 @@ langchain-core
 faiss-cpu
 sentence-transformers
 huggingface-hub
+pdfplumber

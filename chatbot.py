@@ -2,7 +2,7 @@ import streamlit as st
 from groq import Groq
 import os
 import glob
-from pypdf import PdfReader
+import pdfplumber  # <--- THƯ VIỆN MỚI XỊN HƠN
 
 # --- CÁC THƯ VIỆN RAG ---
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -22,7 +22,7 @@ st.set_page_config(
 MODEL_NAME = 'llama-3.1-8b-instant'
 PDF_DIR = "./PDF_KNOWLEDGE"
 LOGO_PATH = "LOGO.jpg"
-SIMILARITY_THRESHOLD = 1.5  # Giữ mức trung bình
+SIMILARITY_THRESHOLD = 1.5 
 TOP_K_RETRIEVAL = 6
 
 # --- 2. CSS ---
@@ -53,7 +53,7 @@ except Exception:
 
 client = Groq(api_key=api_key)
 
-# Hàm nạp dữ liệu (Không dùng cache_resource ở đây để có thể reload thủ công)
+# --- HÀM LOAD DATA DÙNG PDFPLUMBER (MỚI) ---
 def load_data():
     if not os.path.exists(PDF_DIR):
         os.makedirs(PDF_DIR)
@@ -66,25 +66,27 @@ def load_data():
     documents = []
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-    # Thêm thanh tiến trình để thầy trò dễ theo dõi
-    progress_text = "Đang nạp dữ liệu... Vui lòng đợi."
+    progress_text = "Đang nạp dữ liệu chi tiết (pdfplumber)..."
     my_bar = st.progress(0, text=progress_text)
     
     total_files = len(pdf_files)
     for idx, pdf_path in enumerate(pdf_files):
+        file_name = os.path.basename(pdf_path)
         try:
-            reader = PdfReader(pdf_path)
-            file_name = os.path.basename(pdf_path)
-            for i, page in enumerate(reader.pages):
-                text = page.extract_text()
-                if text:
-                    # Xử lý text thô một chút để tránh lỗi font cơ bản
-                    text = text.replace('\n', ' ').strip()
-                    chunks = text_splitter.split_text(text)
-                    for chunk in chunks:
-                        documents.append(Document(page_content=chunk, metadata={"source": file_name, "page": i + 1}))
-        except Exception: pass
-        my_bar.progress((idx + 1) / total_files, text=f"Đang đọc file: {file_name}")
+            # DÙNG PDFPLUMBER THAY VÌ PYPDF
+            with pdfplumber.open(pdf_path) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    text = page.extract_text()
+                    if text:
+                        # Xử lý sạch văn bản
+                        text = text.replace('\n', ' ').strip()
+                        chunks = text_splitter.split_text(text)
+                        for chunk in chunks:
+                            documents.append(Document(page_content=chunk, metadata={"source": file_name, "page": i + 1}))
+        except Exception as e:
+            print(f"Lỗi đọc file {file_name}: {e}")
+            
+        my_bar.progress((idx + 1) / total_files, text=f"Đang xử lý: {file_name}")
 
     my_bar.empty()
     
@@ -97,7 +99,6 @@ def load_data():
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Chào bạn! Chatbot KTC đã sẵn sàng. Hãy hỏi về HTML, AI, Python... nhé!"}]
 
-# Kiểm tra xem Vector DB đã có chưa, nếu chưa thì load
 if "vector_db" not in st.session_state:
     with st.spinner("🔄 Đang khởi tạo bộ não lần đầu..."):
         st.session_state.vector_db = load_data()
@@ -109,7 +110,6 @@ with st.sidebar:
     
     st.markdown("<h3 style='text-align: center; color: #0f4c81;'>TRỢ LÝ KTC</h3>", unsafe_allow_html=True)
     
-    # Hiển thị số lượng Vectors (Chỉ số quan trọng để biết sách đã vào chưa)
     if st.session_state.vector_db:
         num_vectors = st.session_state.vector_db.index.ntotal
         st.success(f"🟢 Đã học: {num_vectors} đoạn kiến thức")
@@ -118,27 +118,25 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # --- CÔNG CỤ QUẢN TRỊ (Dành cho thầy Khanh check lỗi) ---
-    st.markdown("**🔧 Công cụ quản trị**")
-    
-    # Nút 1: Ép học lại (Quan trọng khi thêm sách mới)
+    # Nút nạp lại dữ liệu
     if st.button("🔄 Nạp lại dữ liệu gốc (Force Reload)", use_container_width=True):
-        st.session_state.vector_db = None # Xóa não cũ
-        st.rerun() # Chạy lại trang để hàm load_data chạy lại
+        st.session_state.vector_db = None 
+        st.rerun() 
         
-    # Nút 2: Xóa chat
     if st.button("🧹 Làm mới hội thoại", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
-    # --- DEBUG: KIỂM TRA XEM MÁY ĐỌC ĐƯỢC GÌ ---
+    # DEBUG
     with st.expander("🕵️ Soi dữ liệu (Debug)"):
         st.write("Dán câu hỏi vào đây để xem máy tìm thấy đoạn nào:")
         debug_query = st.text_input("Câu hỏi test", "HTML là gì")
         if st.button("Kiểm tra tìm kiếm") and st.session_state.vector_db:
             docs = st.session_state.vector_db.similarity_search_with_score(debug_query, k=4)
             for doc, score in docs:
-                st.write(f"**Score:** {score:.3f}")
+                # Format màu cho điểm số
+                score_color = "green" if score < 1.5 else "red"
+                st.markdown(f"**Score:** :{score_color}[{score:.3f}]")
                 st.info(doc.page_content)
                 st.write("---")
 
@@ -163,7 +161,6 @@ with col2:
         with st.chat_message("user", avatar="🧑‍🎓"):
             st.markdown(prompt)
 
-        # --- LOGIC RAG ---
         context_text = ""
         relevant_docs = []
 
@@ -174,9 +171,7 @@ with col2:
                     context_text += f"\n---\n[Nguồn: {doc.metadata['source']} - Tr.{doc.metadata['page']}]\nNội dung: {doc.page_content}"
                     relevant_docs.append(doc)
         
-        # --- PROMPT ---
         if not context_text:
-            # Nếu không tìm thấy trong PDF, cho phép AI trả lời bằng kiến thức nền nhưng phải cảnh báo
             system_instruction = """
             Bạn là Chatbot KTC.
             Hiện tại bạn KHÔNG tìm thấy thông tin này trong tài liệu PDF được cung cấp.
@@ -211,7 +206,6 @@ with col2:
                         placeholder.markdown(full_response + "▌")
                 placeholder.markdown(full_response)
                 
-                # Hiển thị minh chứng
                 if relevant_docs:
                     with st.expander("📚 Minh chứng từ tài liệu (Click để xem)"):
                         for doc in relevant_docs:
