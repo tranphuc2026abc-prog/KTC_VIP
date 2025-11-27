@@ -2,10 +2,8 @@ streamlit
 langchain
 langchain-community
 langchain-huggingface
-langchain-core
-faiss-cpu
 pypdf
+faiss-cpu
 groq
 transformers
 sentence-transformers
-numpy<2
