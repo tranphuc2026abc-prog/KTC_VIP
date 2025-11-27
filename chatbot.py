@@ -288,7 +288,7 @@ def generate_stream_response(client, context, question):
         return f"❌ Lỗi kết nối AI: {str(e)}"
 
 # ==============================================================================
-# 6. MAIN APP
+# 6. MAIN APP (Đã sửa lỗi st.toast icon)
 # ==============================================================================
 
 def main():
@@ -347,7 +347,8 @@ def main():
         db = kb.get_vector_store()
         if db:
             st.session_state.vector_db = db
-            st.toast("✅ Đã nạp dữ liệu thành công!", icon="ready")
+            # --- ĐÃ SỬA DÒNG NÀY ---
+            st.toast("✅ Đã nạp dữ liệu thành công!", icon="✅") 
         else:
             st.session_state.vector_db = None
             # Không báo lỗi ngay, để người dùng vẫn chat được (nhưng AI sẽ trả lời chay)
@@ -384,7 +385,6 @@ def main():
                     translated = translate_query(prompt, translator)
                     if translated != prompt:
                         search_query = translated
-                        # st.caption(f"Query (En): {search_query}") # Debug nếu cần
 
                 # Bước 2: Truy xuất dữ liệu (RAG)
                 st.write("📚 Đang quét cơ sở dữ liệu PDF...")
