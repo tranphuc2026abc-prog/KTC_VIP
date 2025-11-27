@@ -1,12 +1,11 @@
 streamlit
-groq
-pdfplumber
-pypdf
 langchain
 langchain-community
 langchain-huggingface
-langchain-text-splitters
 langchain-core
-scikit-learn
+faiss-cpu
+pypdf
+groq
+transformers
 sentence-transformers
-huggingface-hub
+numpy<2
