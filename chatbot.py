@@ -1,22 +1,41 @@
 import streamlit as st
-from groq import Groq
 import os
 import glob
-import pdfplumber  # <--- THƯ VIỆN MỚI XỊN HƠN
+import sys
 
-# --- CÁC THƯ VIỆN RAG ---
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.documents import Document
-
-# --- 1. CẤU HÌNH TRANG ---
+# --- 1. CẤU HÌNH TRANG (BẮT BUỘC PHẢI ĐỂ ĐẦU TIÊN) ---
 st.set_page_config(
     page_title="Chatbot KTC - Trợ lý Tin học",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- 2. KIỂM TRA MÔI TRƯỜNG (SAFE MODE) ---
+# Đoạn này giúp App không bị sập nguồn nếu thiếu thư viện
+try:
+    from groq import Groq
+    import pdfplumber
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_community.vectorstores import FAISS
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_core.documents import Document
+    LIBRARIES_OK = True
+except ImportError as e:
+    LIBRARIES_OK = False
+    ERROR_DETAIL = str(e)
+
+# --- 3. GIAO DIỆN BÁO LỖI (NẾU CÓ) ---
+if not LIBRARIES_OK:
+    st.markdown("<h1 style='text-align: center; color: red;'>⚠️ HỆ THỐNG ĐANG THIẾU THƯ VIỆN</h1>", unsafe_allow_html=True)
+    st.error(f"Lỗi cụ thể: {ERROR_DETAIL}")
+    st.warning("👉 Thầy Khanh hãy kiểm tra lại file 'requirements.txt' trên Github.")
+    st.info(f"Phiên bản Python đang chạy: {sys.version}")
+    st.stop() # Dừng lại tại đây, không chạy tiếp để tránh sập app
+
+# =========================================================
+# NẾU MỌI THỨ ỔN, CODE CHÍNH SẼ CHẠY TỪ ĐÂY
+# =========================================================
 
 # --- CÁC HẰNG SỐ ---
 MODEL_NAME = 'llama-3.1-8b-instant'
@@ -25,7 +44,7 @@ LOGO_PATH = "LOGO.jpg"
 SIMILARITY_THRESHOLD = 1.5 
 TOP_K_RETRIEVAL = 6
 
-# --- 2. CSS ---
+# --- CSS ---
 st.markdown("""
 <style>
     .stApp {background-color: #f8f9fa;}
@@ -43,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. XỬ LÝ KẾT NỐI ---
+# --- XỬ LÝ KẾT NỐI ---
 try:
     api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
     if not api_key: raise KeyError("Missing GROQ_API_KEY")
@@ -53,7 +72,7 @@ except Exception:
 
 client = Groq(api_key=api_key)
 
-# --- HÀM LOAD DATA DÙNG PDFPLUMBER (MỚI) ---
+# --- HÀM LOAD DATA ---
 def load_data():
     if not os.path.exists(PDF_DIR):
         os.makedirs(PDF_DIR)
@@ -73,12 +92,10 @@ def load_data():
     for idx, pdf_path in enumerate(pdf_files):
         file_name = os.path.basename(pdf_path)
         try:
-            # DÙNG PDFPLUMBER THAY VÌ PYPDF
             with pdfplumber.open(pdf_path) as pdf:
                 for i, page in enumerate(pdf.pages):
                     text = page.extract_text()
                     if text:
-                        # Xử lý sạch văn bản
                         text = text.replace('\n', ' ').strip()
                         chunks = text_splitter.split_text(text)
                         for chunk in chunks:
@@ -103,7 +120,7 @@ if "vector_db" not in st.session_state:
     with st.spinner("🔄 Đang khởi tạo bộ não lần đầu..."):
         st.session_state.vector_db = load_data()
 
-# --- 4. SIDEBAR ---
+# --- SIDEBAR ---
 with st.sidebar:
     if os.path.exists(LOGO_PATH):
         st.image(LOGO_PATH, use_container_width=True)
@@ -118,7 +135,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # Nút nạp lại dữ liệu
     if st.button("🔄 Nạp lại dữ liệu gốc (Force Reload)", use_container_width=True):
         st.session_state.vector_db = None 
         st.rerun() 
@@ -127,14 +143,12 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    # DEBUG
     with st.expander("🕵️ Soi dữ liệu (Debug)"):
         st.write("Dán câu hỏi vào đây để xem máy tìm thấy đoạn nào:")
         debug_query = st.text_input("Câu hỏi test", "HTML là gì")
         if st.button("Kiểm tra tìm kiếm") and st.session_state.vector_db:
             docs = st.session_state.vector_db.similarity_search_with_score(debug_query, k=4)
             for doc, score in docs:
-                # Format màu cho điểm số
                 score_color = "green" if score < 1.5 else "red"
                 st.markdown(f"**Score:** :{score_color}[{score:.3f}]")
                 st.info(doc.page_content)
@@ -142,7 +156,7 @@ with st.sidebar:
 
     st.markdown("<div style='margin-top: 20px; font-size: 0.8rem; color: grey'>Sản phẩm KHKT - THCS & THPT Phạm Kiệt</div>", unsafe_allow_html=True)
 
-# --- 5. GIAO DIỆN CHÍNH ---
+# --- GIAO DIỆN CHÍNH ---
 col1, col2, col3 = st.columns([1, 8, 1])
 
 with col2:
