@@ -122,10 +122,50 @@ def embed_model():
     return HuggingFaceEmbeddings(model_name=AppConfig.EMBEDDING_MODEL)
 
 @st.cache_resource
+# Thay thế hàm load_translator hiện tại bằng phiên bản an toàn (không crash khi offline)
+@st.cache_resource(show_spinner=False)
 def load_translator():
-    tokenizer = AutoTokenizer.from_pretrained(AppConfig.TRANSLATION_MODEL)
-    model = AutoModelForSeq2SeqLM.from_pretrained(AppConfig.TRANSLATION_MODEL)
-    return pipeline("translation", model=model, tokenizer=tokenizer, src_lang="vi", tgt_lang="en")
+    """
+    Thử tải bộ dịch. Nếu thất bại (ví dụ môi trường không có internet / model không có sẵn),
+    trả về None để app tiếp tục hoạt động.
+    """
+    try:
+        # Nếu người dùng đặt TRANSLATION_MODEL = None thì skip
+        if not AppConfig.TRANSLATION_MODEL:
+            return None
+        tokenizer = AutoTokenizer.from_pretrained(AppConfig.TRANSLATION_MODEL)
+        model = AutoModelForSeq2SeqLM.from_pretrained(AppConfig.TRANSLATION_MODEL)
+        # tạo pipeline nhưng không đặt src/tgt (vì một số phiên bản transformers ko chấp nhận)
+        return pipeline("translation", model=model, tokenizer=tokenizer)
+    except Exception as e:
+        # Ghi log/hiện warning (không dừng app)
+        st.warning(f"⚠️ Không thể tải model dịch ({AppConfig.TRANSLATION_MODEL}): {e}. Tiếp tục không dùng translator.")
+        return None
+
+
+def translate_query(text: str, translator) -> str:
+    """
+    Nếu có translator thì thử dịch (cắt giới hạn chars để tránh lỗi với model lớn).
+    Nếu translator là None hoặc quá trình dịch lỗi -> trả lại text gốc.
+    """
+    if not translator or not text:
+        return text
+    try:
+        # Một số pipeline trả list, một số trả dict, handle cả hai
+        out = translator(text[:500])  # giới hạn 500 ký tự cho an toàn
+        if isinstance(out, list) and len(out) > 0:
+            first = out[0]
+            if isinstance(first, dict):
+                return first.get("translation_text") or first.get("text") or text
+            elif isinstance(first, str):
+                return first
+        if isinstance(out, dict):
+            return out.get("translation_text") or out.get("text") or text
+        return text
+    except Exception as e:
+        # Nếu dịch lỗi, không dừng app
+        st.warning(f"⚠️ Lỗi khi dịch (bỏ qua): {e}")
+        return text
 
 @st.cache_data
 def read_pdfs(folder: str):
