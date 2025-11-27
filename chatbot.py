@@ -22,9 +22,13 @@ st.set_page_config(
 MODEL_NAME = 'llama-3.1-8b-instant'
 PDF_DIR = "./PDF_KNOWLEDGE"
 LOGO_PATH = "LOGO.jpg"
-# Ngưỡng điểm tương đồng (Thấp hơn là tốt hơn với FAISS L2 distance, nhưng với cosine similarity thì ngược lại). 
-# Ở đây ta dùng FAISS mặc định (L2), khoảng cách càng nhỏ càng giống.
-SIMILARITY_THRESHOLD = 1.2  
+
+# --- TÙY CHỈNH THAM SỐ TÌM KIẾM ---
+# Tăng ngưỡng lên 1.6 để chấp nhận các từ khóa ngắn (như HTML, RAM)
+# Nếu AI trả lời sai nhiều quá thì giảm xuống 1.4
+SIMILARITY_THRESHOLD = 1.6  
+# Số lượng đoạn văn lấy ra để AI đọc (Tăng lên 6 để AI có nhiều ngữ cảnh hơn)
+TOP_K_RETRIEVAL = 6
 
 # --- 2. CSS TÙY CHỈNH GIAO DIỆN ---
 st.markdown("""
@@ -62,7 +66,6 @@ st.markdown("""
 
 # --- 3. XỬ LÝ KẾT NỐI ---
 try:
-    # Ưu tiên lấy từ secrets, nếu không có thì thử biến môi trường (cho debug local)
     api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
     if not api_key:
         raise KeyError("Missing GROQ_API_KEY")
@@ -72,7 +75,6 @@ except Exception:
 
 client = Groq(api_key=api_key)
 
-# Cache tài nguyên nặng (Embeddings & Vector DB) để không load lại khi reload trang
 @st.cache_resource(show_spinner=False)
 def initialize_vector_db():
     if not os.path.exists(PDF_DIR):
@@ -83,9 +85,8 @@ def initialize_vector_db():
     if not pdf_files:
         return None
 
-    with st.spinner('🔄 Đang nạp dữ liệu tri thức (Mất khoảng 1-2 phút lần đầu)...'):
+    with st.spinner('🔄 Đang nạp dữ liệu tri thức...'):
         documents = []
-        # Chunk size quan trọng: 1000 ký tự đủ để chứa 1 đoạn thông tin trọn vẹn
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
         for pdf_path in pdf_files:
@@ -102,13 +103,12 @@ def initialize_vector_db():
 
         if not documents: return None
         
-        # Model Multilingual cực quan trọng cho dự án Anh-Việt
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         return FAISS.from_documents(documents, embeddings)
 
 # --- KHỞI TẠO STATE ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Chào bạn! Mình là Chatbot KTC 🤖. Mình đã học hết tài liệu thầy Khanh giao rồi, bạn hỏi gì đi!"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Chào bạn! Mình là Chatbot KTC 🤖. Hãy hỏi mình về kiến thức Tin học nhé!"}]
 
 if "vector_db" not in st.session_state:
     st.session_state.vector_db = initialize_vector_db()
@@ -159,70 +159,75 @@ with col2:
     st.markdown('<h1 class="gradient-text">CHATBOT HỖ TRỢ HỌC TẬP KTC</h1>', unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #64748b; font-style: italic; margin-bottom: 30px;'>🚀 Hỏi đáp thông minh dựa trên tài liệu Tin học (Anh/Việt)</p>", unsafe_allow_html=True)
     
-    # Hiển thị lịch sử chat
     for message in st.session_state.messages:
         avatar = "🧑‍🎓" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"], unsafe_allow_html=True)
 
-    # Xử lý input người dùng
     prompt = st.chat_input("Nhập câu hỏi của bạn tại đây...")
 
     if prompt:
-        # 1. Hiển thị câu hỏi người dùng
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="🧑‍🎓"):
             st.markdown(prompt)
 
-        # 2. Xử lý RAG
+        # --- LOGIC RAG NÂNG CAO ---
         context_text = ""
         sources_list = []
         relevant_docs = []
 
         if st.session_state.vector_db:
-            # SỬ DỤNG similarity_search_with_score ĐỂ LỌC NHIỄU
-            # k=4: lấy 4 đoạn; score càng thấp càng giống (với L2 distance của FAISS)
-            results_with_score = st.session_state.vector_db.similarity_search_with_score(prompt, k=4)
+            # Tăng k=TOP_K_RETRIEVAL để tìm sâu hơn
+            results_with_score = st.session_state.vector_db.similarity_search_with_score(prompt, k=TOP_K_RETRIEVAL)
             
             for doc, score in results_with_score:
-                # Nếu score > ngưỡng (ví dụ 1.5) nghĩa là quá khác biệt -> Bỏ qua
-                # Lưu ý: Ngưỡng này cần tinh chỉnh tùy vào dữ liệu thực tế
+                # Nới lỏng Threshold để bắt từ khóa ngắn
                 if score < SIMILARITY_THRESHOLD: 
                     context_text += f"\n---\n[Nguồn: {doc.metadata['source']} - Tr.{doc.metadata['page']}]\nNội dung: {doc.page_content}"
                     sources_list.append(f"{doc.metadata['source']} (Trang {doc.metadata['page']})")
                     relevant_docs.append(doc)
         
-        # 3. Xây dựng Prompt
+        # --- PROMPT ENGINEERING CHẶT CHẼ (CHỐNG BỊA ĐẶT) ---
         if not context_text:
-            context_text = "Không tìm thấy thông tin phù hợp trong tài liệu được cung cấp."
-            system_instruction = "Bạn là trợ lý ảo. Hiện tại bạn không tìm thấy thông tin trong tài liệu. Hãy trả lời lịch sự rằng bạn chưa có thông tin về vấn đề này trong bộ dữ liệu, nhưng có thể trả lời dựa trên kiến thức xã hội (nếu biết)."
+            context_part = "BỐI CẢNH TÀI LIỆU: (Trống - Không tìm thấy thông tin phù hợp trong kho dữ liệu)."
         else:
-            system_instruction = """
-            Bạn là "Chatbot KTC", trợ lý chuyên gia Tin học của thầy Khanh.
-            NHIỆM VỤ:
-            1. Dựa CHÍNH XÁC vào "BỐI CẢNH" bên dưới để trả lời.
-            2. Nếu bối cảnh tiếng Anh, HÃY DỊCH VÀ TRẢ LỜI BẰNG TIẾNG VIỆT tự nhiên.
-            3. Trình bày câu trả lời rõ ràng, dùng Markdown (in đậm, gạch đầu dòng) để dễ đọc.
-            4. Cuối câu trả lời, hãy trích dẫn ngắn gọn nguồn tài liệu.
-            """
+            context_part = f"BỐI CẢNH TÀI LIỆU:\n{context_text}"
 
-        final_prompt = f"{system_instruction}\n\n--- BỐI CẢNH TÀI LIỆU ---\n{context_text}\n\n--- CÂU HỎI ---\n{prompt}"
+        system_instruction = f"""
+        Bạn là "Chatbot KTC", trợ lý Tin học thông minh của thầy Khanh.
+        
+        NHIỆM VỤ QUAN TRỌNG:
+        Bước 1: Đọc thật kỹ phần "BỐI CẢNH TÀI LIỆU" bên dưới.
+        Bước 2: Xác định xem câu trả lời cho câu hỏi của người dùng CÓ NẰM TRONG BỐI CẢNH không?
+        
+        QUY TẮC TRẢ LỜI (BẮT BUỘC TUÂN THỦ):
+        
+        🔴 TRƯỜNG HỢP 1: NẾU THẤY THÔNG TIN TRONG BỐI CẢNH
+        - Hãy trả lời câu hỏi dựa vào thông tin đó.
+        - Tuyệt đối trung thực với tài liệu.
+        - Dịch sang tiếng Việt nếu tài liệu là tiếng Anh.
+        
+        🔴 TRƯỜNG HỢP 2: NẾU KHÔNG THẤY THÔNG TIN TRONG BỐI CẢNH (HOẶC BỐI CẢNH TRỐNG)
+        - Bạn phải bắt đầu câu trả lời bằng câu: "⚠️ Thông tin này không có trong kho tài liệu của Thầy Khanh."
+        - SAU ĐÓ: Bạn được phép dùng kiến thức riêng của bạn (Chatbot) để giải thích cho học sinh hiểu, nhưng phải nói rõ đây là kiến thức bổ sung.
+        - TUYỆT ĐỐI KHÔNG được bịa đặt nguồn gốc tài liệu nếu không tìm thấy.
+        
+        {context_part}
+        """
 
-        # 4. Gọi API Groq (Streaming)
+        # Gọi API Groq
         with st.chat_message("assistant", avatar="🤖"):
             placeholder = st.empty()
             full_response = ""
             try:
-                # Gửi kèm lịch sử chat ngắn (nếu cần) hoặc chỉ gửi prompt hiện tại để tiết kiệm token
-                # Ở đây ta gửi prompt hiện tại kèm context RAG là tối ưu nhất cho KHKT
                 chat_completion = client.chat.completions.create(
                     messages=[
-                        {"role": "system", "content": final_prompt},
+                        {"role": "system", "content": system_instruction},
                         {"role": "user", "content": prompt}
                     ],
                     model=MODEL_NAME, 
                     stream=True, 
-                    temperature=0.3
+                    temperature=0.3 # Giữ nhiệt độ thấp để bot trung thực
                 )
 
                 for chunk in chat_completion:
@@ -233,12 +238,12 @@ with col2:
                 
                 placeholder.markdown(full_response)
                 
-                # HIỂN THỊ NGUỒN MINH BẠCH (Điểm cộng KHKT)
+                # CHỈ HIỆN NGUỒN NẾU CÓ TÌM THẤY TÀI LIỆU
                 if relevant_docs:
-                    with st.expander("📚 Xem trích dẫn tài liệu gốc (Dành cho Giám khảo/Kiểm chứng)"):
+                    with st.expander("📚 Xem tài liệu gốc tìm thấy (Minh chứng)"):
                         for doc in relevant_docs:
                             st.markdown(f"**📄 {doc.metadata['source']} - Trang {doc.metadata['page']}**")
-                            st.caption(doc.page_content[:300] + "...") # Chỉ hiện 300 ký tự đầu
+                            st.caption(doc.page_content[:300] + "...") 
                             st.divider()
 
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
@@ -246,4 +251,4 @@ with col2:
             except Exception as e:
                 st.error(f"⚠️ Có lỗi kết nối AI: {e}")
 
-    st.markdown('<div class="footer-note">⚠️ Dự án KHKT trường THCS & THPT Phạm Kiệt. AI có thể mắc lỗi, hãy kiểm tra tài liệu gốc.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-note">⚠️ Dự án KHKT trường THCS & THPT Phạm Kiệt.</div>', unsafe_allow_html=True)
