@@ -103,26 +103,6 @@ def inject_custom_css():
             font-style: italic;
         }
 
-        /* Table định dạng thông tin trong Sidebar */
-        .info-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-        .info-table td {
-            padding: 6px 0;
-            vertical-align: top;
-        }
-        .info-label {
-            font-weight: 700;
-            color: #495057;
-            width: 65px; /* Cố định chiều rộng nhãn để thẳng hàng */
-        }
-        .info-value {
-            color: #212529;
-            text-align: right;
-        }
-
         /* 3. MAIN HEADER - 2 CỘT */
         .main-header {
             background: linear-gradient(135deg, #023e8a 0%, #0077b6 100%);
@@ -290,7 +270,7 @@ def main():
         
     inject_custom_css()
     
-    # --- SIDEBAR (LOGO TRƯỜNG LÊN TOP) ---
+    # --- SIDEBAR (ĐÃ SỬA LỖI HIỂN THỊ HTML) ---
     with st.sidebar:
         # 1. Logo Trường Phạm Kiệt (Trên cùng)
         if os.path.exists(AppConfig.LOGO_SCHOOL):
@@ -299,30 +279,26 @@ def main():
                 st.image(AppConfig.LOGO_SCHOOL, use_container_width=True)
             st.markdown("<div style='text-align:center; font-weight:700; color:#023e8a; margin-bottom:20px;'>THCS & THPT PHẠM KIỆT</div>", unsafe_allow_html=True)
         
-        # 2. Thông tin Dự án (Layout Bảng chống rớt dòng)
+        # 2. Thông tin Dự án (Layout Div Flexbox thay cho Table cũ bị lỗi)
         st.markdown("""
         <div class="project-card">
             <div class="project-title">KTC CHATBOT</div>
             <div class="project-sub">Sản phẩm dự thi KHKT cấp trường</div>
             <hr style="margin: 10px 0; border-top: 1px dashed #dee2e6;">
-            
-            <table class="info-table">
-                <tr>
-                    <td class="info-label">Tác giả:</td>
-                    <td class="info-value">
-                        <b>Bùi Tá Tùng</b><br>
-                        <b>Cao Sỹ Bảo Chung</b>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="info-label">GVHD:</td>
-                    <td class="info-value">Thầy <b>Nguyễn Thế Khanh</b></td>
-                </tr>
-                <tr>
-                    <td class="info-label">Năm học:</td>
-                    <td class="info-value"><b>2025 - 2026</b></td>
-                </tr>
-            </table>
+            <div style="font-size: 0.9rem; line-height: 1.6;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="font-weight: 600; color: #555;">Tác giả:</span>
+                    <span style="text-align: right; color: #222;"><b>Bùi Tá Tùng</b><br><b>Cao Sỹ Bảo Chung</b></span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 8px;">
+                    <span style="font-weight: 600; color: #555;">GVHD:</span>
+                    <span style="text-align: right; color: #222;">Thầy <b>Nguyễn Thế Khanh</b></span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 8px;">
+                    <span style="font-weight: 600; color: #555;">Năm học:</span>
+                    <span style="text-align: right; color: #222;"><b>2025 - 2026</b></span>
+                </div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -334,7 +310,7 @@ def main():
 
     # --- MAIN CONTENT ---
     
-    # Banner Header (2 Cột: Text trái - Logo Nhóm phải)
+    # Banner Header (Đã cập nhật Slogan mới)
     logo_nhom_b64 = get_img_as_base64(AppConfig.LOGO_PROJECT)
     img_html = f'<img src="data:image/jpeg;base64,{logo_nhom_b64}" alt="Logo">' if logo_nhom_b64 else ""
 
@@ -342,7 +318,7 @@ def main():
     <div class="main-header">
         <div class="header-left">
             <h1>KTC CHATBOT</h1>
-            <p>Hỗ trợ học tập Tin học & Khoa học máy tính</p>
+            <p style="font-size: 1.1rem; margin-top: 5px;">Học Tin dễ dàng - Thao tác vững vàng</p>
         </div>
         <div class="header-right">
             {img_html}
