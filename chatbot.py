@@ -311,36 +311,37 @@ class RAGEngine:
         sources = []
         
         if vector_db:
-            # [NÂNG CẤP] Bước 1: Lấy diện rộng (20 đoạn)
+            # 1. Lấy diện rộng (20 đoạn)
             retriever = vector_db.as_retriever(
                 search_type=AppConfig.RETRIEVAL_TYPE, 
                 search_kwargs={"k": AppConfig.RETRIEVAL_K, "fetch_k": 50}
             )
             initial_docs = retriever.invoke(query)
             
-            # [NÂNG CẤP] Bước 2: Rerank (Lọc tinh hoa)
-            ranker = RAGEngine.load_reranker()
+            # 2. Rerank (Lọc tinh hoa) - CÓ CƠ CHẾ CHỐNG SẬP
             final_docs = []
-
-            if ranker and initial_docs:
-                # Chuẩn bị dữ liệu cho FlashRank
-                passages = [
-                    {"id": str(i), "text": doc.page_content, "meta": doc.metadata} 
-                    for i, doc in enumerate(initial_docs)
-                ]
-                
-                # Thực hiện chấm điểm lại
-                rerank_request = RerankRequest(query=query, passages=passages)
-                ranked_results = ranker.rank(rerank_request)
-                
-                # Chỉ lấy Top 5 kết quả tốt nhất
-                top_results = ranked_results[:AppConfig.FINAL_K]
-                
-                # Tạo lại danh sách docs
-                for res in top_results:
-                    final_docs.append(Document(page_content=res['text'], metadata=res['meta']))
-            else:
-                # Fallback nếu Reranker lỗi
+            try:
+                ranker = RAGEngine.load_reranker()
+                if ranker and initial_docs:
+                    passages = [
+                        {"id": str(i), "text": doc.page_content, "meta": doc.metadata} 
+                        for i, doc in enumerate(initial_docs)
+                    ]
+                    
+                    rerank_request = RerankRequest(query=query, passages=passages)
+                    ranked_results = ranker.rank(rerank_request)
+                    
+                    # Lấy Top 5 kết quả tốt nhất
+                    top_results = ranked_results[:AppConfig.FINAL_K]
+                    
+                    for res in top_results:
+                        final_docs.append(Document(page_content=res['text'], metadata=res['meta']))
+                else:
+                    raise Exception("Ranker chưa sẵn sàng")
+                    
+            except Exception as e:
+                # Nếu Rerank lỗi -> Tự động quay về cách cũ (Lấy 5 đoạn đầu)
+                # print(f"⚠️ Rerank gặp lỗi, đang dùng chế độ thường: {e}")
                 final_docs = initial_docs[:AppConfig.FINAL_K]
 
             # Tạo ngữ cảnh prompt
